@@ -15,12 +15,15 @@ interface Request {
   status: "pending" | "approved" | "rejected";
   studentName: string;
   sentTo?: "hod" | "faculty";
+  submittedAt: string;
+  updatedAt?: string;
 }
 
 const FacultyDashboard = () => {
   const navigate = useNavigate();
   const [pendingRequests, setPendingRequests] = useState<Request[]>([]);
-  const [approvedRequests, setApprovedRequests] = useState<Request[]>([]);
+  const [allDirectRequests, setAllDirectRequests] = useState<Request[]>([]);
+  const [hodApprovedRequests, setHodApprovedRequests] = useState<Request[]>([]);
 
   useEffect(() => {
     const userRole = localStorage.getItem("userRole");
@@ -32,12 +35,19 @@ const FacultyDashboard = () => {
 
   const loadRequests = () => {
     // Load direct requests sent to faculty
-    const facultyPending = JSON.parse(localStorage.getItem("facultyPendingRequests") || "[]");
-    setPendingRequests(facultyPending.filter((r: Request) => r.status === "pending"));
+    const facultyAll = JSON.parse(localStorage.getItem("facultyPendingRequests") || "[]");
+    facultyAll.sort((a: Request, b: Request) => 
+      new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+    );
+    setAllDirectRequests(facultyAll);
+    setPendingRequests(facultyAll.filter((r: Request) => r.status === "pending"));
     
     // Load HOD approved requests
     const approved = JSON.parse(localStorage.getItem("approvedRequests") || "[]");
-    setApprovedRequests(approved);
+    approved.sort((a: Request, b: Request) => 
+      new Date(b.updatedAt || b.submittedAt).getTime() - new Date(a.updatedAt || a.submittedAt).getTime()
+    );
+    setHodApprovedRequests(approved);
   };
 
   const handleApprove = (requestId: string) => {
@@ -51,21 +61,34 @@ const FacultyDashboard = () => {
   };
 
   const updateRequestStatus = (requestId: string, status: "approved" | "rejected") => {
+    const now = new Date().toISOString();
+    
     // Update faculty pending requests
     const facultyPending = JSON.parse(localStorage.getItem("facultyPendingRequests") || "[]");
     const updatedPending = facultyPending.map((r: Request) =>
-      r.id === requestId ? { ...r, status } : r
+      r.id === requestId ? { ...r, status, updatedAt: now } : r
     );
     localStorage.setItem("facultyPendingRequests", JSON.stringify(updatedPending));
 
     // Update student requests
     const studentRequests = JSON.parse(localStorage.getItem("studentRequests") || "[]");
     const updatedStudent = studentRequests.map((r: Request) =>
-      r.id === requestId ? { ...r, status } : r
+      r.id === requestId ? { ...r, status, updatedAt: now } : r
     );
     localStorage.setItem("studentRequests", JSON.stringify(updatedStudent));
 
     loadRequests();
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "approved":
+        return "bg-green-100 text-green-700";
+      case "rejected":
+        return "bg-red-100 text-red-700";
+      default:
+        return "bg-yellow-100 text-yellow-700";
+    }
   };
 
   return (
@@ -77,7 +100,7 @@ const FacultyDashboard = () => {
         <div className="lg:col-span-2 space-y-6">
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="text-lg">Direct Requests for Review</CardTitle>
+              <CardTitle className="text-lg">Direct Requests - Pending Review</CardTitle>
             </CardHeader>
             <CardContent>
               {pendingRequests.length === 0 ? (
@@ -85,14 +108,17 @@ const FacultyDashboard = () => {
               ) : (
                 <div className="space-y-4">
                   {pendingRequests.map((request) => (
-                    <div key={request.id} className="p-4 border rounded-lg">
+                    <div key={request.id} className="p-4 border rounded-lg bg-yellow-50">
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex-1">
                           <p className="font-semibold text-lg">{request.studentName}</p>
                           <p className="text-sm text-muted-foreground">
                             Subject: {request.subject}
                           </p>
-                          <p className="text-sm text-muted-foreground">Date: {request.date}</p>
+                          <p className="text-sm text-muted-foreground">Absence Date: {request.date}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Submitted: {new Date(request.submittedAt).toLocaleDateString()} at {new Date(request.submittedAt).toLocaleTimeString()}
+                          </p>
                         </div>
                       </div>
                       <p className="text-sm mb-4 text-muted-foreground">
@@ -124,14 +150,14 @@ const FacultyDashboard = () => {
 
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="text-lg">HOD Approved Requests</CardTitle>
+              <CardTitle className="text-lg">Direct Requests History</CardTitle>
             </CardHeader>
             <CardContent>
-              {approvedRequests.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No approved requests from HOD</p>
+              {allDirectRequests.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">No direct requests yet</p>
               ) : (
-                <div className="space-y-4">
-                  {approvedRequests.map((request) => (
+                <div className="space-y-3">
+                  {allDirectRequests.map((request) => (
                     <div key={request.id} className="p-4 border rounded-lg">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
@@ -139,13 +165,62 @@ const FacultyDashboard = () => {
                           <p className="text-sm text-muted-foreground">
                             Subject: {request.subject}
                           </p>
-                          <p className="text-sm text-muted-foreground">Date: {request.date}</p>
+                          <p className="text-sm text-muted-foreground">Absence Date: {request.date}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Submitted: {new Date(request.submittedAt).toLocaleDateString()} at {new Date(request.submittedAt).toLocaleTimeString()}
+                          </p>
+                          {request.updatedAt && (
+                            <p className="text-xs text-muted-foreground">
+                              Reviewed: {new Date(request.updatedAt).toLocaleDateString()} at {new Date(request.updatedAt).toLocaleTimeString()}
+                            </p>
+                          )}
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}>
+                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        <span className="font-medium text-foreground">Reason:</span> {request.reason}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle className="text-lg">HOD Approved Requests</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {hodApprovedRequests.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">No HOD approved requests yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {hodApprovedRequests.map((request) => (
+                    <div key={request.id} className="p-4 border rounded-lg">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-lg">{request.studentName}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Subject: {request.subject}
+                          </p>
+                          <p className="text-sm text-muted-foreground">Absence Date: {request.date}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Submitted: {new Date(request.submittedAt).toLocaleDateString()} at {new Date(request.submittedAt).toLocaleTimeString()}
+                          </p>
+                          {request.updatedAt && (
+                            <p className="text-xs text-muted-foreground">
+                              Approved: {new Date(request.updatedAt).toLocaleDateString()} at {new Date(request.updatedAt).toLocaleTimeString()}
+                            </p>
+                          )}
                         </div>
                         <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
                           Approved by HOD
                         </span>
                       </div>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground mt-2">
                         <span className="font-medium text-foreground">Reason:</span> {request.reason}
                       </p>
                     </div>

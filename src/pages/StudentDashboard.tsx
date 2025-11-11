@@ -19,6 +19,8 @@ interface Request {
   status: "pending" | "approved" | "rejected";
   studentName: string;
   sentTo: "hod" | "faculty";
+  submittedAt: string;
+  updatedAt?: string;
 }
 
 const StudentDashboard = () => {
@@ -34,12 +36,20 @@ const StudentDashboard = () => {
     if (userRole !== "student") {
       navigate("/login");
     }
-    // Load requests from localStorage
+    loadRequests();
+  }, [navigate]);
+
+  const loadRequests = () => {
     const saved = localStorage.getItem("studentRequests");
     if (saved) {
-      setRequests(JSON.parse(saved));
+      const allRequests = JSON.parse(saved);
+      // Sort by most recent first
+      allRequests.sort((a: Request, b: Request) => 
+        new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+      );
+      setRequests(allRequests);
     }
-  }, [navigate]);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,9 +67,10 @@ const StudentDashboard = () => {
       status: "pending",
       studentName: localStorage.getItem("username") || "student1",
       sentTo,
+      submittedAt: new Date().toISOString(),
     };
 
-    const updatedRequests = [...requests, newRequest];
+    const updatedRequests = [newRequest, ...requests];
     setRequests(updatedRequests);
     localStorage.setItem("studentRequests", JSON.stringify(updatedRequests));
     
@@ -79,6 +90,17 @@ const StudentDashboard = () => {
     setDate("");
     setReason("");
     setSentTo("hod");
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "approved":
+        return "bg-green-100 text-green-700";
+      case "rejected":
+        return "bg-red-100 text-red-700";
+      default:
+        return "bg-yellow-100 text-yellow-700";
+    }
   };
 
   return (
@@ -144,7 +166,7 @@ const StudentDashboard = () => {
 
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="text-lg">Your Requests</CardTitle>
+              <CardTitle className="text-lg">All Requests History</CardTitle>
             </CardHeader>
             <CardContent>
               {requests.length === 0 ? (
@@ -154,26 +176,28 @@ const StudentDashboard = () => {
                   {requests.map((request) => (
                     <div key={request.id} className="p-4 border rounded-lg">
                       <div className="flex justify-between items-start mb-2">
-                        <div>
+                        <div className="flex-1">
                           <p className="font-semibold">{request.subject}</p>
-                          <p className="text-sm text-muted-foreground">{request.date}</p>
+                          <p className="text-sm text-muted-foreground">Absence Date: {request.date}</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             Sent to: {request.sentTo?.toUpperCase() || "HOD"}
                           </p>
+                          <p className="text-xs text-muted-foreground">
+                            Submitted: {new Date(request.submittedAt).toLocaleDateString()} at {new Date(request.submittedAt).toLocaleTimeString()}
+                          </p>
+                          {request.updatedAt && (
+                            <p className="text-xs text-muted-foreground">
+                              Updated: {new Date(request.updatedAt).toLocaleDateString()} at {new Date(request.updatedAt).toLocaleTimeString()}
+                            </p>
+                          )}
                         </div>
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            request.status === "approved"
-                              ? "bg-green-100 text-green-700"
-                              : request.status === "rejected"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
-                        >
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}>
                           {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                         </span>
                       </div>
-                      <p className="text-sm text-muted-foreground">{request.reason}</p>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        <span className="font-medium text-foreground">Reason:</span> {request.reason}
+                      </p>
                     </div>
                   ))}
                 </div>
