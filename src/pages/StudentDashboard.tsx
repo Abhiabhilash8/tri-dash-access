@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GraduationCap, Send } from "lucide-react";
 import { toast } from "sonner";
 
@@ -17,6 +18,7 @@ interface Request {
   reason: string;
   status: "pending" | "approved" | "rejected";
   studentName: string;
+  sentTo: "hod" | "faculty";
 }
 
 const StudentDashboard = () => {
@@ -24,6 +26,7 @@ const StudentDashboard = () => {
   const [subject, setSubject] = useState("");
   const [date, setDate] = useState("");
   const [reason, setReason] = useState("");
+  const [sentTo, setSentTo] = useState<"hod" | "faculty">("hod");
   const [requests, setRequests] = useState<Request[]>([]);
 
   useEffect(() => {
@@ -53,21 +56,29 @@ const StudentDashboard = () => {
       reason,
       status: "pending",
       studentName: localStorage.getItem("username") || "student1",
+      sentTo,
     };
 
     const updatedRequests = [...requests, newRequest];
     setRequests(updatedRequests);
     localStorage.setItem("studentRequests", JSON.stringify(updatedRequests));
     
-    // Save to pending requests for HOD
-    const pending = JSON.parse(localStorage.getItem("pendingRequests") || "[]");
-    pending.push(newRequest);
-    localStorage.setItem("pendingRequests", JSON.stringify(pending));
+    // Save to appropriate pending requests
+    if (sentTo === "hod") {
+      const pending = JSON.parse(localStorage.getItem("pendingRequests") || "[]");
+      pending.push(newRequest);
+      localStorage.setItem("pendingRequests", JSON.stringify(pending));
+    } else {
+      const facultyPending = JSON.parse(localStorage.getItem("facultyPendingRequests") || "[]");
+      facultyPending.push(newRequest);
+      localStorage.setItem("facultyPendingRequests", JSON.stringify(facultyPending));
+    }
 
-    toast.success("Request submitted successfully!");
+    toast.success(`Request sent to ${sentTo.toUpperCase()} successfully!`);
     setSubject("");
     setDate("");
     setReason("");
+    setSentTo("hod");
   };
 
   return (
@@ -111,6 +122,18 @@ const StudentDashboard = () => {
                     rows={4}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sentTo">Send request to</Label>
+                  <Select value={sentTo} onValueChange={(value: "hod" | "faculty") => setSentTo(value)}>
+                    <SelectTrigger id="sentTo" className="bg-card">
+                      <SelectValue placeholder="Select recipient" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card z-50">
+                      <SelectItem value="hod">HOD</SelectItem>
+                      <SelectItem value="faculty">Faculty</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button type="submit" className="w-full flex items-center justify-center gap-2">
                   <Send className="h-4 w-4" />
                   Submit Request
@@ -134,6 +157,9 @@ const StudentDashboard = () => {
                         <div>
                           <p className="font-semibold">{request.subject}</p>
                           <p className="text-sm text-muted-foreground">{request.date}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Sent to: {request.sentTo?.toUpperCase() || "HOD"}
+                          </p>
                         </div>
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-medium ${
