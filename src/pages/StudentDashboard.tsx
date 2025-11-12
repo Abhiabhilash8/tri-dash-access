@@ -1,15 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import CalendarPanel from "@/components/CalendarPanel";
+import StatisticsCards, { StatItem } from "@/components/StatisticsCards";
+import SearchFilterPanel, { FilterState } from "@/components/SearchFilterPanel";
+import ExportButton from "@/components/ExportButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, Send } from "lucide-react";
+import { GraduationCap, Send, CheckCircle, Clock, XCircle, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { useNotifications } from "@/contexts/NotificationContext";
 
 interface Request {
   id: string;
@@ -25,11 +29,19 @@ interface Request {
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
+  const { addNotification } = useNotifications();
   const [subject, setSubject] = useState("");
   const [date, setDate] = useState("");
   const [reason, setReason] = useState("");
   const [sentTo, setSentTo] = useState<"hod" | "faculty">("hod");
   const [requests, setRequests] = useState<Request[]>([]);
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    status: "all",
+    subject: "all",
+    dateFrom: "",
+    dateTo: "",
+  });
 
   useEffect(() => {
     const userRole = localStorage.getItem("userRole");
@@ -74,7 +86,6 @@ const StudentDashboard = () => {
     setRequests(updatedRequests);
     localStorage.setItem("studentRequests", JSON.stringify(updatedRequests));
     
-    // Save to appropriate pending requests
     if (sentTo === "hod") {
       const pending = JSON.parse(localStorage.getItem("pendingRequests") || "[]");
       pending.push(newRequest);
@@ -84,6 +95,11 @@ const StudentDashboard = () => {
       facultyPending.push(newRequest);
       localStorage.setItem("facultyPendingRequests", JSON.stringify(facultyPending));
     }
+
+    addNotification({
+      message: `Attendance request for ${subject} on ${date} sent to ${sentTo.toUpperCase()}`,
+      type: "success",
+    });
 
     toast.success(`Request sent to ${sentTo.toUpperCase()} successfully!`);
     setSubject("");
@@ -103,11 +119,38 @@ const StudentDashboard = () => {
     }
   };
 
+  const stats: StatItem[] = useMemo(() => {
+    const total = requests.length;
+    const approved = requests.filter(r => r.status === "approved").length;
+    const pending = requests.filter(r => r.status === "pending").length;
+    const rejected = requests.filter(r => r.status === "rejected").length;
+    const approvalRate = total > 0 ? Math.round((approved / total) * 100) : 0;
+
+    return [
+      { title: "Total Requests", value: total, icon: <FileText className="h-5 w-5" />, trend: 5, description: "All time" },
+      { title: "Approved", value: approved, icon: <CheckCircle className="h-5 w-5" />, description: `${approvalRate}% approval rate` },
+      { title: "Pending", value: pending, icon: <Clock className="h-5 w-5" />, description: "Awaiting review" },
+      { title: "Rejected", value: rejected, icon: <XCircle className="h-5 w-5" />, description: "Not approved" },
+    ];
+  }, [requests]);
+
+  const filteredRequests = useMemo(() => {
+    return requests.filter(request => {
+      const searchLower = filters.search.toLowerCase();
+      const matchesSearch = request.studentName.toLowerCase().includes(searchLower) || request.subject.toLowerCase().includes(searchLower) || request.reason.toLowerCase().includes(searchLower);
+      const matchesStatus = filters.status === "all" || request.status === filters.status;
+      const matchesSubject = filters.subject === "all" || request.subject === filters.subject;
+      const matchesDateFrom = !filters.dateFrom || request.date >= filters.dateFrom;
+      const matchesDateTo = !filters.dateTo || request.date <= filters.dateTo;
+      return matchesSearch && matchesStatus && matchesSubject && matchesDateFrom && matchesDateTo;
+    });
+  }, [requests, filters]);
+
+  const uniqueSubjects = useMemo(() => Array.from(new Set(requests.map(r => r.subject))), [requests]);
+
   return (
-    <DashboardLayout 
-      title="Student Dashboard" 
-      icon={<GraduationCap className="h-8 w-8 text-foreground" />}
-    >
+    <DashboardLayout title="Student Dashboard" icon={<GraduationCap className="h-8 w-8 text-foreground" />}>
+      <StatisticsCards stats={stats} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <Card className="shadow-lg">
@@ -165,15 +208,17 @@ const StudentDashboard = () => {
           </Card>
 
           <Card className="shadow-lg">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">All Requests History</CardTitle>
+              <ExportButton data={filteredRequests} filename="student_requests" />
             </CardHeader>
-            <CardContent>
-              {requests.length === 0 ? (
-                <p className="text-muted-foreground text-center py-4">No requests submitted yet</p>
+            <CardContent className="space-y-4">
+              <SearchFilterPanel filters={filters} onFilterChange={setFilters} subjects={uniqueSubjects} />
+              {filteredRequests.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">{requests.length === 0 ? "No requests submitted yet" : "No requests match your filters"}</p>
               ) : (
                 <div className="space-y-3">
-                  {requests.map((request) => (
+                  {filteredRequests.map((request) => (
                     <div key={request.id} className="p-4 border rounded-lg">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
@@ -207,7 +252,7 @@ const StudentDashboard = () => {
         </div>
 
         <div className="lg:col-span-1">
-          <CalendarPanel />
+          <CalendarPanel showQuickSubmit />
         </div>
       </div>
     </DashboardLayout>
