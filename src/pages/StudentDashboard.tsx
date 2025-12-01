@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, Send, CheckCircle, Clock, XCircle, FileText } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { GraduationCap, Send, CheckCircle, Clock, XCircle, FileText, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useNotifications } from "@/contexts/NotificationContext";
 
@@ -22,9 +23,11 @@ interface Request {
   reason: string;
   status: "pending" | "approved" | "rejected";
   studentName: string;
-  sentTo: "hod" | "faculty";
+  sentTo: "hod" | "faculty" | "both";
   submittedAt: string;
   updatedAt?: string;
+  urgent?: boolean;
+  rejectionReason?: string;
 }
 
 const StudentDashboard = () => {
@@ -33,7 +36,8 @@ const StudentDashboard = () => {
   const [subject, setSubject] = useState("");
   const [date, setDate] = useState("");
   const [reason, setReason] = useState("");
-  const [sentTo, setSentTo] = useState<"hod" | "faculty">("hod");
+  const [sentTo, setSentTo] = useState<"hod" | "faculty" | "both">("hod");
+  const [urgent, setUrgent] = useState(false);
   const [requests, setRequests] = useState<Request[]>([]);
   const [filters, setFilters] = useState<FilterState>({
     search: "",
@@ -71,41 +75,81 @@ const StudentDashboard = () => {
       return;
     }
 
-    const newRequest: Request = {
-      id: Date.now().toString(),
+    const baseRequest = {
       subject,
       date,
       reason,
-      status: "pending",
+      status: "pending" as const,
       studentName: localStorage.getItem("username") || "student1",
-      sentTo,
       submittedAt: new Date().toISOString(),
+      urgent,
     };
 
-    const updatedRequests = [newRequest, ...requests];
-    setRequests(updatedRequests);
-    localStorage.setItem("studentRequests", JSON.stringify(updatedRequests));
-    
-    if (sentTo === "hod") {
+    // Handle "both" case - create two separate requests
+    if (sentTo === "both") {
+      const hodRequest: Request = {
+        ...baseRequest,
+        id: `${Date.now()}-hod`,
+        sentTo: "hod",
+      };
+      const facultyRequest: Request = {
+        ...baseRequest,
+        id: `${Date.now()}-faculty`,
+        sentTo: "faculty",
+      };
+
+      const updatedRequests = [hodRequest, facultyRequest, ...requests];
+      setRequests(updatedRequests);
+      localStorage.setItem("studentRequests", JSON.stringify(updatedRequests));
+      
       const pending = JSON.parse(localStorage.getItem("pendingRequests") || "[]");
-      pending.push(newRequest);
+      pending.push(hodRequest);
       localStorage.setItem("pendingRequests", JSON.stringify(pending));
-    } else {
+
       const facultyPending = JSON.parse(localStorage.getItem("facultyPendingRequests") || "[]");
-      facultyPending.push(newRequest);
+      facultyPending.push(facultyRequest);
       localStorage.setItem("facultyPendingRequests", JSON.stringify(facultyPending));
+
+      addNotification({
+        message: `${urgent ? "URGENT: " : ""}Attendance request for ${subject} on ${date} sent to both HOD and Faculty`,
+        type: urgent ? "warning" : "success",
+      });
+
+      toast.success("Request sent to both HOD and Faculty successfully!");
+    } else {
+      const newRequest: Request = {
+        ...baseRequest,
+        id: Date.now().toString(),
+        sentTo,
+      };
+
+      const updatedRequests = [newRequest, ...requests];
+      setRequests(updatedRequests);
+      localStorage.setItem("studentRequests", JSON.stringify(updatedRequests));
+      
+      if (sentTo === "hod") {
+        const pending = JSON.parse(localStorage.getItem("pendingRequests") || "[]");
+        pending.push(newRequest);
+        localStorage.setItem("pendingRequests", JSON.stringify(pending));
+      } else {
+        const facultyPending = JSON.parse(localStorage.getItem("facultyPendingRequests") || "[]");
+        facultyPending.push(newRequest);
+        localStorage.setItem("facultyPendingRequests", JSON.stringify(facultyPending));
+      }
+
+      addNotification({
+        message: `${urgent ? "URGENT: " : ""}Attendance request for ${subject} on ${date} sent to ${sentTo.toUpperCase()}`,
+        type: urgent ? "warning" : "success",
+      });
+
+      toast.success(`Request sent to ${sentTo.toUpperCase()} successfully!`);
     }
 
-    addNotification({
-      message: `Attendance request for ${subject} on ${date} sent to ${sentTo.toUpperCase()}`,
-      type: "success",
-    });
-
-    toast.success(`Request sent to ${sentTo.toUpperCase()} successfully!`);
     setSubject("");
     setDate("");
     setReason("");
     setSentTo("hod");
+    setUrgent(false);
   };
 
   const getStatusColor = (status: string) => {
@@ -189,15 +233,30 @@ const StudentDashboard = () => {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="sentTo">Send request to</Label>
-                  <Select value={sentTo} onValueChange={(value: "hod" | "faculty") => setSentTo(value)}>
+                  <Select value={sentTo} onValueChange={(value: "hod" | "faculty" | "both") => setSentTo(value)}>
                     <SelectTrigger id="sentTo" className="bg-card">
                       <SelectValue placeholder="Select recipient" />
                     </SelectTrigger>
                     <SelectContent className="bg-card z-50">
-                      <SelectItem value="hod">HOD</SelectItem>
-                      <SelectItem value="faculty">Faculty</SelectItem>
+                      <SelectItem value="hod">HOD only</SelectItem>
+                      <SelectItem value="faculty">Faculty only</SelectItem>
+                      <SelectItem value="both">Both HOD & Faculty</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="flex items-center space-x-2 p-3 bg-muted rounded-lg">
+                  <Checkbox 
+                    id="urgent" 
+                    checked={urgent}
+                    onCheckedChange={(checked) => setUrgent(checked as boolean)}
+                  />
+                  <Label 
+                    htmlFor="urgent" 
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-2"
+                  >
+                    <AlertTriangle className="h-4 w-4 text-destructive" />
+                    Mark as Urgent
+                  </Label>
                 </div>
                 <Button type="submit" className="w-full flex items-center justify-center gap-2">
                   <Send className="h-4 w-4" />
@@ -219,10 +278,15 @@ const StudentDashboard = () => {
               ) : (
                 <div className="space-y-3">
                   {filteredRequests.map((request) => (
-                    <div key={request.id} className="p-4 border rounded-lg">
+                    <div key={request.id} className={`p-4 border rounded-lg ${request.urgent ? 'border-destructive bg-destructive/5' : ''}`}>
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
-                          <p className="font-semibold">{request.subject}</p>
+                          <div className="flex items-center gap-2">
+                            {request.urgent && (
+                              <AlertTriangle className="h-4 w-4 text-destructive" />
+                            )}
+                            <p className="font-semibold">{request.subject}</p>
+                          </div>
                           <p className="text-sm text-muted-foreground">Absence Date: {request.date}</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             Sent to: {request.sentTo?.toUpperCase() || "HOD"}
@@ -236,13 +300,25 @@ const StudentDashboard = () => {
                             </p>
                           )}
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}>
-                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                        </span>
+                        <div className="flex flex-col items-end gap-2">
+                          {request.urgent && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive text-destructive-foreground">
+                              URGENT
+                            </span>
+                          )}
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}>
+                            {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                          </span>
+                        </div>
                       </div>
                       <p className="text-sm text-muted-foreground mt-2">
                         <span className="font-medium text-foreground">Reason:</span> {request.reason}
                       </p>
+                      {request.rejectionReason && request.status === "rejected" && (
+                        <p className="text-sm text-destructive mt-2">
+                          <span className="font-medium">Rejection Reason:</span> {request.rejectionReason}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
