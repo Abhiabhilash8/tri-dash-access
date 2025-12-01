@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Users, Check, X, CheckCircle, Clock, XCircle, FileText, AlertTriangle, Timer } from "lucide-react";
+import { Users, Check, X, CheckCircle, Clock, XCircle, FileText, AlertTriangle, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useNotifications } from "@/contexts/NotificationContext";
 
@@ -37,6 +39,9 @@ const FacultyDashboard = () => {
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [bulkAction, setBulkAction] = useState<"approve" | "reject">("approve");
+  const [keywordFilter, setKeywordFilter] = useState("");
+  const [showKeywordDialog, setShowKeywordDialog] = useState(false);
+  const [keywordAction, setKeywordAction] = useState<"approve" | "reject">("approve");
   const [filters, setFilters] = useState<FilterState>({
     search: "",
     status: "all",
@@ -138,6 +143,34 @@ const FacultyDashboard = () => {
     setSelectedRequests(newSelected);
   };
 
+  const handleKeywordAction = () => {
+    const matchingRequests = getKeywordMatchingRequests();
+    const count = matchingRequests.length;
+    
+    matchingRequests.forEach(request => {
+      if (keywordAction === "approve") {
+        handleApprove(request.id);
+      } else {
+        handleReject(request.id, `Bulk rejection - keyword: "${keywordFilter}"`);
+      }
+    });
+
+    toast.success(`${count} request${count > 1 ? 's' : ''} matching "${keywordFilter}" ${keywordAction === "approve" ? "approved" : "rejected"}`);
+    setShowKeywordDialog(false);
+    setKeywordFilter("");
+  };
+
+  const getKeywordMatchingRequests = () => {
+    if (!keywordFilter.trim()) return [];
+    
+    const keyword = keywordFilter.toLowerCase();
+    return pendingRequests.filter(request =>
+      request.studentName.toLowerCase().includes(keyword) ||
+      request.subject.toLowerCase().includes(keyword) ||
+      request.reason.toLowerCase().includes(keyword)
+    );
+  };
+
   const updateRequestStatus = (requestId: string, status: "approved" | "rejected", rejectionReason?: string) => {
     const now = new Date().toISOString();
     
@@ -156,22 +189,6 @@ const FacultyDashboard = () => {
     loadRequests();
   };
 
-  const getPendingSince = (submittedAt: string): string => {
-    const diffMs = Date.now() - new Date(submittedAt).getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    
-    if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''}`;
-    if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''}`;
-    return 'Just now';
-  };
-
-  const isOldRequest = (submittedAt: string): boolean => {
-    const diffMs = Date.now() - new Date(submittedAt).getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    return diffDays >= 5;
-  };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case "approved":
@@ -188,23 +205,8 @@ const FacultyDashboard = () => {
     const directTotal = allDirectRequests.length;
     const directApproved = allDirectRequests.filter(r => r.status === "approved").length;
     const directPending = allDirectRequests.filter(r => r.status === "pending").length;
-
-    // Calculate average response time in hours
-    const reviewedRequests = allDirectRequests.filter(r => r.updatedAt);
-    const avgResponseTime = reviewedRequests.length > 0
-      ? Math.round(
-          reviewedRequests.reduce((sum, r) => {
-            const diff = new Date(r.updatedAt!).getTime() - new Date(r.submittedAt).getTime();
-            return sum + diff / (1000 * 60 * 60);
-          }, 0) / reviewedRequests.length
-        )
-      : 0;
-
-    // Today's workload
-    const today = new Date().toDateString();
-    const todayCount = allDirectRequests.filter(r => 
-      new Date(r.submittedAt).toDateString() === today
-    ).length;
+    const directRejected = allDirectRequests.filter(r => r.status === "rejected").length;
+    const approvalRate = directTotal > 0 ? Math.round((directApproved / directTotal) * 100) : 0;
 
     return [
       {
@@ -215,10 +217,10 @@ const FacultyDashboard = () => {
         description: "Sent to faculty",
       },
       {
-        title: "Avg Response Time",
-        value: avgResponseTime > 0 ? `${avgResponseTime}h` : "-",
-        icon: <Timer className="h-5 w-5" />,
-        description: reviewedRequests.length > 0 ? `${reviewedRequests.length} reviewed` : "No data yet",
+        title: "Approved",
+        value: directApproved,
+        icon: <CheckCircle className="h-5 w-5" />,
+        description: `${approvalRate}% approval rate`,
       },
       {
         title: "Pending Review",
@@ -227,10 +229,10 @@ const FacultyDashboard = () => {
         description: "Needs action",
       },
       {
-        title: "Today's Workload",
-        value: todayCount,
-        icon: <AlertTriangle className="h-5 w-5" />,
-        description: "Submitted today",
+        title: "Rejected",
+        value: directRejected,
+        icon: <XCircle className="h-5 w-5" />,
+        description: "Not approved",
       },
     ];
   }, [allDirectRequests]);
@@ -269,62 +271,112 @@ const FacultyDashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <Card className="shadow-lg">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader>
               <CardTitle className="text-lg">Direct Requests - Pending Review</CardTitle>
-              {selectedRequests.size > 0 && (
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => {
-                      setBulkAction("approve");
-                      setShowBulkDialog(true);
-                    }}
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <Check className="h-4 w-4 mr-1" />
-                    Approve Selected ({selectedRequests.size})
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setBulkAction("reject");
-                      setShowBulkDialog(true);
-                    }}
-                    size="sm"
-                    variant="destructive"
-                  >
-                    <X className="h-4 w-4 mr-1" />
-                    Reject Selected ({selectedRequests.size})
-                  </Button>
-                </div>
-              )}
             </CardHeader>
             <CardContent>
               {pendingRequests.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No pending requests</p>
               ) : (
                 <div className="space-y-4">
-                  {pendingRequests.length > 0 && (
-                    <div className="flex items-center gap-2 pb-2 border-b">
-                      <Checkbox
-                        checked={selectedRequests.size === pendingRequests.length}
-                        onCheckedChange={toggleSelectAll}
+                  {/* Keyword Filter Section */}
+                  <div className="p-4 bg-muted/50 rounded-lg border space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-5 w-5 text-muted-foreground" />
+                      <Input
+                        placeholder="Filter by keyword (student, subject, reason)..."
+                        value={keywordFilter}
+                        onChange={(e) => setKeywordFilter(e.target.value)}
+                        className="flex-1"
                       />
-                      <span className="text-sm font-medium">Select All</span>
+                      {keywordFilter && (
+                        <Badge variant="secondary">
+                          {getKeywordMatchingRequests().length} matching
+                        </Badge>
+                      )}
+                    </div>
+                    {keywordFilter && getKeywordMatchingRequests().length > 0 && (
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => {
+                            setKeywordAction("approve");
+                            setShowKeywordDialog(true);
+                          }}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          <Check className="h-4 w-4 mr-1" />
+                          Accept All ({getKeywordMatchingRequests().length})
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setKeywordAction("reject");
+                            setShowKeywordDialog(true);
+                          }}
+                          size="sm"
+                          className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Reject All ({getKeywordMatchingRequests().length})
+                        </Button>
+                      </div>
+                    )}
+                    {keywordFilter && getKeywordMatchingRequests().length === 0 && (
+                      <p className="text-sm text-muted-foreground">No matching requests</p>
+                    )}
+                  </div>
+
+                  {/* Bulk Selection Section */}
+                  {selectedRequests.size > 0 && (
+                    <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg border border-primary/20">
+                      <span className="text-sm font-medium">{selectedRequests.size} request{selectedRequests.size > 1 ? 's' : ''} selected</span>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => {
+                            setBulkAction("approve");
+                            setShowBulkDialog(true);
+                          }}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          <Check className="h-4 w-4 mr-1" />
+                          Approve Selected
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setBulkAction("reject");
+                            setShowBulkDialog(true);
+                          }}
+                          size="sm"
+                          variant="destructive"
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Reject Selected
+                        </Button>
+                      </div>
                     </div>
                   )}
+
+                  <div className="flex items-center gap-2 pb-2 border-b">
+                    <Checkbox
+                      checked={selectedRequests.size === pendingRequests.length}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                    <span className="text-sm font-medium">Select All</span>
+                  </div>
+
                   {pendingRequests.map((request) => {
-                    const isOld = isOldRequest(request.submittedAt);
-                    const pendingSince = getPendingSince(request.submittedAt);
+                    const isMatching = keywordFilter && getKeywordMatchingRequests().some(r => r.id === request.id);
                     
                     return (
                       <div 
                         key={request.id} 
-                        className={`p-4 border rounded-lg ${
-                          request.urgent 
+                        className={`p-4 border rounded-lg transition-all ${
+                          isMatching
+                            ? 'bg-blue-50 border-blue-300 shadow-md'
+                            : request.urgent 
                             ? 'bg-destructive/10 border-destructive' 
-                            : isOld 
-                            ? 'bg-yellow-50 border-yellow-300' 
-                            : 'bg-yellow-50'
+                            : 'bg-card'
                         }`}
                       >
                         <div className="flex items-start gap-3 mb-3">
@@ -341,10 +393,6 @@ const FacultyDashboard = () => {
                                   URGENT
                                 </span>
                               )}
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                Pending {pendingSince}
-                              </span>
                             </div>
                             <p className="font-semibold text-lg">{request.studentName}</p>
                             <p className="text-sm text-muted-foreground">
@@ -416,6 +464,36 @@ const FacultyDashboard = () => {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction onClick={handleBulkAction}>
                   Confirm {bulkAction === "approve" ? "Approval" : "Rejection"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog open={showKeywordDialog} onOpenChange={setShowKeywordDialog}>
+            <AlertDialogContent className="bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  {keywordAction === "approve" ? "Accept" : "Reject"} All Matching "{keywordFilter}"?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  <div className="space-y-2">
+                    <p>
+                      You are about to {keywordAction} <span className="font-bold text-foreground">{getKeywordMatchingRequests().length} request{getKeywordMatchingRequests().length > 1 ? 's' : ''}</span> matching the keyword{' '}
+                      <span className="font-bold text-primary">"{keywordFilter}"</span>.
+                    </p>
+                    <p className="text-sm">
+                      This action cannot be undone. Non-matching requests will remain unaffected.
+                    </p>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction 
+                  onClick={handleKeywordAction}
+                  className={keywordAction === "approve" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
+                >
+                  Confirm {keywordAction === "approve" ? "Accept" : "Reject"} All
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
